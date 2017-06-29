@@ -157,10 +157,11 @@ extension ViewController {
           
           print("Content uploaded with ID: \(firstFileID)")
           
-          self.downloadTags(contentID: firstFileID) { (tags) in
-            completion(tags, [PhotoColor]())
+          self.downloadTags(contentID: firstFileID) { tags in
+            self.downloadColors(contentID: firstFileID) { colors in
+              completion(tags, colors)
+            }
           }
-          
         })
       case .failure(let encodingError):
         print(encodingError)
@@ -179,15 +180,60 @@ extension ViewController {
           return
         }
         
-        guard let responseJSON = response.result.value as? [String: Any] else {
-          print("Invalid tag information received from the service")
-          completion([String]())
+        guard let responseJSON = response.result.value as? [String: Any],
+          let results = responseJSON["results"] as? [[String: Any]],
+          let firstObject = results.first,
+          let tagsAndConfidences = firstObject["tags"] as? [[String: Any]] else {
+            print("Invalid tag information received from the service")
+            completion([String]())
+            return
+        }
+        
+        let tags = tagsAndConfidences.flatMap({ (dict) in
+            return dict["tag"] as? String
+        })
+        completion(tags)
+        
+    }
+  }
+  
+  func downloadColors(contentID: String, completion: @escaping ([PhotoColor]) -> Void) {
+    Alamofire.request("http://api.imagga.com/v1/colors",
+                      parameters: ["content": contentID],
+                      headers: ["Authorization": "Basic YWNjX2E0NGZjYzg5YWQxYWRlMDozNDYyNDQyMmJmNjg5MzEzODFhZGFjYTM5NTU3NzU3Nw=="])
+      .responseJSON { (response) in
+        
+        guard response.result.isSuccess else {
+          print("Error while fetching colors: \(response.result.error)")
+          completion([PhotoColor]())
           return
         }
         
-        print(responseJSON)
-        completion([String]())
+        guard let responseJSON = response.result.value as? [String: Any],
+          let results = responseJSON["results"] as? [[String: Any]],
+          let firstResult = results.first,
+          let info = firstResult["info"] as? [String: Any],
+          let imageColors = info["image_colors"] as? [[String: Any]] else {
+            print("Invalid color information received from service")
+            completion([PhotoColor]())
+            return
+        }
         
+        let photoColors = imageColors.flatMap({ (dict) -> PhotoColor? in
+          guard let r = dict["r"] as? String,
+            let g = dict["g"] as? String,
+            let b = dict["b"] as? String,
+            let closestPaletteColor = dict["closest_palette_color"] as? String else {
+              return nil
+          }
+          
+          return PhotoColor(red: Int(r),
+                            green: Int(g),
+                            blue: Int(b),
+                            colorName: closestPaletteColor)
+        })
+        
+        completion(photoColors)
     }
   }
 }
